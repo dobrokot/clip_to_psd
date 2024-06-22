@@ -17,7 +17,7 @@ import math
 from collections import namedtuple
 from functools import cmp_to_key
 # import Image from PIL:
-# also imports Image from PIL if command line requires this. module Image is not loaded, if --blank-psd-preview is used, and no output dir for PNGs. So it's possible to export PSD with only builtin python modules.
+# also imports Image from PIL if command line requires this. module Image is not loaded, if --blank-psd-preview is used, and no output dir for PNGs. So it's possible to export PSD with only built-in python modules.
 import itertools
 import argparse
 
@@ -29,7 +29,7 @@ BlockCheckSum = 'BlockCheckSum'.encode('UTF-16BE')
 
 # returns list of subblocks in rectangular grid of blocks (some are None, for blocks with missing data).
 # Subblock data in result list are slices of the input parameter (memoryview)
-# rectangular grid is flatten: bitmap_blocks[block_y*grid_width + block_x] has data for (block_x,block_y) cell.
+# rectangular grid is flattened: bitmap_blocks[block_y*grid_width + block_x] has data for (block_x,block_y) cell.
 # can return None if can't parse blocks
 def parse_chunk_with_blocks(d):
     ii = 0
