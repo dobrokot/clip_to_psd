@@ -8,6 +8,7 @@ A Python script to convert Clip Studio Paint (.clip) files to PSD format without
 - Exports all basic layer properties (visibility, alpha lock, folder structure).
 - Supports exporting text as vector text layers, a feature not available in the original Clip Studio Paint.
 - Supports some filter layer types.
+- With the command-line switch `--blank-psd-preview`, it's possible to avoid dependency on the Image PIL library and export a .clip file to a .psd file without any dependencies outside of Python's built-in libraries.
 
 ## Basic Usage
 
