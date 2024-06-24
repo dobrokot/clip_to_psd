@@ -752,19 +752,20 @@ def get_layers_bitmaps(chunks, sqlite_info):
 
     layer_bitmaps = { }
 
-    def get_layer_chunk_data(mipmap_id):
+    def get_layer_chunk_data(l, mipmap_id):
         if mipmap_id:
             external_block_row = offscreen_dict[mipmapinfo_dict[mipmap_dict[mipmap_id].BaseMipmapInfo].Offscreen]
             external_id = external_block_row.BlockData
             if external_id not in chunks:
+                logging.debug("layer %s references non-existing chunk %s", repr(l.LayerName), repr(external_id))
                 return None
             return (chunks[external_id].bitmap_blocks, external_block_row.Attribute)
         return None
 
     for l in sqlite_info.layer_sqlite_info:
         layer_bitmaps[l.MainId] = LayerBitmaps(
-            get_layer_chunk_data(l.LayerRenderMipmap),
-            get_layer_chunk_data(l.LayerLayerMaskMipmap))
+            get_layer_chunk_data(l, l.LayerRenderMipmap),
+            get_layer_chunk_data(l, l.LayerLayerMaskMipmap))
 
     return layer_bitmaps
 
@@ -1653,8 +1654,18 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         layer_channels = []
         filter_layer_info = getattr(layer, 'FilterLayerInfo', None)
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
-        has_pixel_data = layer_type == "lt_bitmap" and None != layer_bitmaps.get(layer.MainId) and layer_bitmaps[layer.MainId].LayerBitmap
-        if layer_type == "lt_bitmap" and not filter_layer_info and not has_fill_color and has_pixel_data:
+
+        layer_bitmap_info_for_export = None
+        if layer_type == "lt_bitmap" and not filter_layer_info and not has_fill_color:
+            layer_all_bitmaps_info = layer_bitmaps.get(layer.MainId)
+            if layer_all_bitmaps_info:
+                layer_bitmap_info_for_export = layer_all_bitmaps_info.LayerBitmap
+                if not layer_bitmap_info_for_export:
+                    logging.warning("layer %s has no pixel data bitmap info", layer.LayerName)
+            else:
+                logging.warning("layer %s has no bitmaps info", layer.LayerName)
+
+        if layer_bitmap_info_for_export:
             bitmap_blocks, offscreen_attribute = layer_bitmaps[layer.MainId].LayerBitmap
             channel_scanlines, offset_x, offset_y, bitmap_width, bitmap_height, _default_color = decode_to_psd_rle(offscreen_attribute, bitmap_blocks, psd_version, "layer")
             assert len(channel_scanlines) == 4
@@ -2468,6 +2479,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
 
     def export_layer_text(layer_entry):
         _layer_type, layer = layer_entry
+        logging.info('exporting %s as text layer', layer.LayerName if layer else '-')
 
         def split_array(data):
             result = []
