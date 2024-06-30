@@ -1735,6 +1735,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     def add_fill_color_for_background_layer(layer_tags, layer):
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
         if has_fill_color:
+            logging.info("exporting solid color layer %s", layer.LayerName)
             fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32)*255 for x in ['Red', 'Green', 'Blue'] ]
             obj = PsdObjDescriptorWriter(io.BytesIO())
             write_int(obj.f, 16) # descriptor version
