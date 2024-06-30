@@ -2480,7 +2480,6 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
 
     def export_layer_text(layer_entry):
         _layer_type, layer = layer_entry
-        logging.info('exporting %s as text layer', layer.LayerName if layer else '-')
 
         def split_array(data):
             result = []
@@ -2553,8 +2552,10 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
                 channels_data.append(export_layer(f, layer_entry, None, make_invisible))
 
             if cmd_args.text_layer_vector != 'disable':
+                _, layer = layer_entry
+                if text_info:
+                    logging.info('exporting %s as text layer', layer.LayerName if layer else '-')
                 for txt in text_info:
-                    _, layer = layer_entry
                     make_invisible = cmd_args.text_layer_vector == 'invisible'
                     channels_data.append(export_layer(f, ('lt_text', layer), txt, make_invisible))
 
