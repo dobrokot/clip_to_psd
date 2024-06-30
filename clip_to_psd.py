@@ -1661,9 +1661,9 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             if layer_all_bitmaps_info:
                 layer_bitmap_info_for_export = layer_all_bitmaps_info.LayerBitmap
                 if not layer_bitmap_info_for_export:
-                    logging.warning("layer %s has no pixel data bitmap info", layer.LayerName)
+                    logging.warning("layer '%s' has no pixel data bitmap info", layer.LayerName)
             else:
-                logging.warning("layer %s has no bitmaps info", layer.LayerName)
+                logging.warning("layer '%s' has no bitmaps info", layer.LayerName)
 
         if layer_bitmap_info_for_export:
             bitmap_blocks, offscreen_attribute = layer_bitmaps[layer.MainId].LayerBitmap
@@ -1735,7 +1735,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     def add_fill_color_for_background_layer(layer_tags, layer):
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
         if has_fill_color:
-            logging.info("exporting solid color layer %s", layer.LayerName)
+            logging.info("exporting solid color layer '%s'", layer.LayerName)
             fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32)*255 for x in ['Red', 'Green', 'Blue'] ]
             obj = PsdObjDescriptorWriter(io.BytesIO())
             write_int(obj.f, 16) # descriptor version
@@ -1932,7 +1932,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
 
     def export_layer(f, layer_entry, txt, make_invisible):
         layer_type, layer = layer_entry
-        logging.info('exporting %s', layer.LayerName if layer else '-')
+        logging.info("exporting '%s'", layer.LayerName if layer else '-')
 
         mask_data, layer_channels = write_bitmap_and_mask_channel_info_and_get_binary_data(f, layer_type, layer)
 
@@ -2554,7 +2554,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             if cmd_args.text_layer_vector != 'disable':
                 _, layer = layer_entry
                 if text_info:
-                    logging.info('exporting %s as text layer', layer.LayerName if layer else '-')
+                    logging.info("exporting '%s' as text layer", layer.LayerName if layer else '-')
                 for txt in text_info:
                     make_invisible = cmd_args.text_layer_vector == 'invisible'
                     channels_data.append(export_layer(f, ('lt_text', layer), txt, make_invisible))
