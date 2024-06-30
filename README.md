@@ -1,7 +1,7 @@
 
 # clip_to_psd
 
-A Python script to convert Clip Studio Paint (.clip) files to PSD format without any dependencies.
+A Python script to convert Clip Studio Paint (.clip) files to PSD format without dependencies.
 
 ## Basic Usage
 
@@ -9,7 +9,7 @@ To convert a .clip file to a .psd file, run the following command:
 
 `python clip_to_psd.py input.clip -o output.psd`
 
-python3 is required.
+python3 and Python PIL is required (Python PIL is optional).
 
 ## Features
 
