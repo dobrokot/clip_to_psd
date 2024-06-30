@@ -2521,6 +2521,9 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             layer_offset = layer.LayerOffsetX, layer.LayerOffsetY
             logging.debug('text_str 2: %s', repr(text_str))
             clip_text_params = parse_layer_text_attribute(t)
+            if 'quad_verts' not in clip_text_params:
+                logging.warning("text does not have bounding quadrangle, skipping")
+                continue
             text_layer_tags.append( make_psd_text_layer_property(layer_offset, text_str, clip_text_params) )
         return text_layer_tags
 
