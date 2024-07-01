@@ -320,14 +320,33 @@ def get_sql_data_layer_chunks():
     conn.close()
     return result
 
+def read_csp_int(f):
+    t = f.read(4)
+    assert len(t) == 4, (len(t), "unexpected end of data section")
+    return int.from_bytes(t, 'big')
+
+def read_csp_double(f):
+    return struct.unpack('>d', f.read(8))[0]
+
+def read_csp_int_maybe(f):
+    t = f.read(4)
+    if len(t) != 4:
+        return None
+    return int.from_bytes(t, 'big')
+
+def read_csp_unicode_str(f):
+    str_size = read_csp_int_maybe(f)
+    if str_size == None:
+        return None
+    string_data = f.read(2 * str_size)
+    return string_data.decode('UTF-16-BE')
+
 def parse_offscreen_attributes_sql_value(offscreen_attribute):
     b_io = io.BytesIO(offscreen_attribute)
     def get_next_int(): return int.from_bytes(b_io.read(4), 'big')
     def check_read_str(s):
-        str_size = get_next_int()
-        assert str_size == len(s), (len(s), str_size, repr(offscreen_attribute))
-        str2bytes = b_io.read(2*str_size)
-        assert s.encode('UTF-16-BE') == str2bytes, (s, repr(str2bytes), repr(offscreen_attribute))
+        s2 = read_csp_unicode_str(b_io)
+        assert s2 == s
 
     header_size = get_next_int()
     assert header_size == 16, (header_size, repr(offscreen_attribute))
@@ -1576,6 +1595,96 @@ def multi_bezier_interpolation_for_clip_curve_filter(points):
     return result
 
 
+GradientColorStop = namedtuple('GradientColorStop', ['r', 'g', 'b', 'opacity', 'position'])
+
+GradientGeometryData = namedtuple('GradientGeometryData', [
+    'repeat_mode', 'shape', 'anti_aliasing',
+    'rotscale_a1', 'rotscale_a2', 'rotscale_b',
+    'pos_x', 'pos_y', 'rotscale_c1', 'rotscale_c2'
+])
+
+def parse_gradient_color_stop(f):
+    r = read_csp_int(f) >> 24
+    g = read_csp_int(f) >> 24
+    b = read_csp_int(f) >> 24
+    opacity = read_csp_int(f) >> 24
+    _is_current_color = read_csp_int(f) # 0 - use color from gradient definition. 1/2 - color is taken from current editor color/secondary color.
+    position = read_csp_int(f) * 100 // (2**15)  # 0 .. 100
+    num_curve_points = read_csp_int(f)
+
+    if num_curve_points != 0:
+        logging.warning("Found reference to curve in gradient definition. Export of curves in gradients is not supported.")
+
+    # curve points data follows in this section, 16 bytes per each point, but this script can't export them to PSD anyway.
+
+    return GradientColorStop(r, g, b, opacity, position)
+
+def parse_gradient_flat_color_data(f):
+    is_flat = bool(read_csp_int(f))
+    if not is_flat:
+        return (False, None)
+    flat_rgb_tuple = tuple(read_csp_int(f) >> 24 for _ in range(3))
+    return (True, flat_rgb_tuple)
+
+def parse_gradient_geometry_data(f):
+    return GradientGeometryData(
+        repeat_mode = read_csp_int(f), # repeat mode outside gradient boundaries.  clip/repeat/mirror repeat/empty - 0,1,2,3
+        shape = read_csp_int(f), # linear/circle/ellipse - 0,1,2
+        anti_aliasing = read_csp_int(f), # 0/1
+        rotscale_a1 = read_csp_double(f),
+        rotscale_a2 = read_csp_double(f),
+        rotscale_b = read_csp_double(f),
+        pos_x = read_csp_double(f),
+        pos_y = read_csp_double(f),
+        rotscale_c1 = read_csp_double(f),
+        rotscale_c2 = read_csp_double(f))
+
+def parse_gradient_colors(f):
+    _unknown = read_csp_int(f)
+    _unknown = read_csp_int(f)
+    num_color_stops = read_csp_int(f)
+    _unknown = read_csp_int(f)
+
+    color_stops = tuple(parse_gradient_color_stop(f) for _ in range(num_color_stops))
+    return color_stops
+
+
+def parse_gradation_fill_data_of_gradient_layers(data):
+    f = io.BytesIO(data)
+    _size_of_data_structure = read_csp_int(f)
+    _unknown = read_csp_int(f)
+
+    color_stops = None
+    geometry_data = None
+    flat_color_data = None
+
+    while (param_name := read_csp_unicode_str(f)) != None:
+        if param_name == "GradationData":
+            section_size = read_csp_int(f)
+            color_stops = parse_gradient_colors(io.BytesIO(f.read(section_size)))
+        elif param_name == "GradationSettingAdd0001":
+            section_size = read_csp_int(f)
+            flat_color_data = parse_gradient_flat_color_data(io.BytesIO(f.read(section_size)))
+        elif param_name == "GradationSetting":
+            geometry_data = parse_gradient_geometry_data(f)
+        else:
+            already_has_information = flat_color_data and (flat_color_data[0] or (color_stops and geometry_data)) #pylint: disable=unsubscriptable-object
+            if already_has_information:
+                break
+            logging.warning("unknown parameter %s, trying to skip it as typical parameter", repr(param_name))
+            section_size = read_csp_int(f)
+            _unused = f.read(section_size)
+
+    if flat_color_data and flat_color_data[0]:
+        return flat_color_data # returns (True, (r,g,b)) for flat color
+    else:
+        if not (color_stops and geometry_data):
+            color_stops_length = None if color_stops==None else len(color_stops)
+            logging.error(
+                "could not find color stops information in gradient definition, color_stops=%s, color_stops_length=%s, geometry_data=%s, [%s]", 
+                bool(color_stops), color_stops_length, bool(geometry_data), repr(data)[0:10000])
+            return None
+        return (False, (color_stops, geometry_data))
 
 def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     psd_version = cmd_args.psd_version 
@@ -1654,9 +1763,10 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         layer_channels = []
         filter_layer_info = getattr(layer, 'FilterLayerInfo', None)
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
+        is_gradient_layer = getattr(layer, 'GradationFillInfo', None)
 
         layer_bitmap_info_for_export = None
-        if layer_type == "lt_bitmap" and not filter_layer_info and not has_fill_color:
+        if layer_type == "lt_bitmap" and not filter_layer_info and not has_fill_color and not is_gradient_layer:
             layer_all_bitmaps_info = layer_bitmaps.get(layer.MainId)
             if layer_all_bitmaps_info:
                 layer_bitmap_info_for_export = layer_all_bitmaps_info.LayerBitmap
@@ -1732,21 +1842,23 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         f.write(layer_name_ascii)
         f.write(b'\0' * (-(layer_name_len+1) & 3) ) # padding 4
 
+    def add_fill_color_for_layer(layer_tags, fill_color):
+        obj = PsdObjDescriptorWriter(io.BytesIO())
+        write_int(obj.f, 16) # descriptor version
+        obj.write_obj_header('null', 1)
+        obj.write_field('Clr ', 'Objc')
+        obj.write_obj_header('RGBC', 3)
+        obj.write_doub('Rd  ', fill_color[0])
+        obj.write_doub('Grn ', fill_color[1])
+        obj.write_doub('Bl  ', fill_color[2])
+        layer_tags.append((b'SoCo', obj.f.getvalue()))
+
     def add_fill_color_for_background_layer(layer_tags, layer):
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
         if has_fill_color:
             logging.info("exporting solid color layer '%s'", layer.LayerName)
             fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32)*255 for x in ['Red', 'Green', 'Blue'] ]
-            obj = PsdObjDescriptorWriter(io.BytesIO())
-            write_int(obj.f, 16) # descriptor version
-            obj.write_obj_header('null', 1)
-            obj.write_field('Clr ', 'Objc')
-            obj.write_obj_header('RGBC', 3)
-            obj.write_doub('Rd  ', fill_color[0])
-            obj.write_doub('Grn ', fill_color[1])
-            obj.write_doub('Bl  ', fill_color[2])
-            layer_tags.append((b'SoCo', obj.f.getvalue()))
-
+            add_fill_color_for_layer(layer_tags, fill_color)
 
     def add_filter_layer_levels_info(layer_tags, d):
         def map_csp_middle_to_psd_inv_gamma_for_levels(x):
@@ -1928,7 +2040,27 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
                 add_filter_layer_hue_saturation(layer_tags, d)
             else:
                 logging.warning("not implemented export of filter type %s %s", filter_index, filter_name_table.get(filter_index, ''))
-                
+
+    def add_gradient_layer_info(layer_tags, layer):
+        gradient_info = getattr(layer, 'GradationFillInfo', None)
+        if gradient_info:
+            logging.debug("exporting gradient")
+            #print(layer.LayerName, '-', gradient_info.hex(' '))
+            layer_gradient_info = parse_gradation_fill_data_of_gradient_layers(gradient_info)
+            if layer_gradient_info == None:
+                return
+            if layer_gradient_info[0]:
+                logging.info("exporting gradient as flat color")
+                add_fill_color_for_layer(layer_tags, fill_color = layer_gradient_info[1])
+            else:
+                logging.warning("exporting gradient - is not implemented this moment")
+                #logging.info("exporting gradient with color stops")
+                #_, (color_stops, geometry_data) = layer_gradient_info
+                #for x in color_stops:
+                #    print(x)
+                #print()
+                #for k, v in geometry_data._asdict().items():
+                #    print(k, v)
 
     def export_layer(f, layer_entry, txt, make_invisible):
         layer_type, layer = layer_entry
@@ -2011,6 +2143,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         add_fill_color_for_background_layer(layer_tags, layer)
 
         add_filter_layer_info(layer_tags, layer)
+        add_gradient_layer_info(layer_tags, layer)
 
         if lsct_folder_tag != None:
             layer_tags.append(( b'lsct', lsct_folder_tag ))
