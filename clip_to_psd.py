@@ -1860,6 +1860,59 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32)*255 for x in ['Red', 'Green', 'Blue'] ]
             add_fill_color_for_layer(layer_tags, fill_color)
 
+    def add_stroke_outline(layer_tags, layer):
+        layer_effect_data = getattr(layer, 'LayerEffectInfo', None)
+        if not layer_effect_data:
+            return
+
+        param_name = 'EffectEdge'
+        param_name_search = len(param_name).to_bytes(4, 'big') + param_name.encode('UTF-16BE')
+        i = layer_effect_data.find(param_name_search) # allow parameter to be anywhere in data
+        if i == -1:
+            logging.warning("can't find EffectEdge parameter in LayerEffectInfo data %s", repr(layer_effect_data)[0:10000])
+            return
+        f = io.BytesIO(layer_effect_data[i+len(param_name_search):])
+        enabled = read_csp_int(f)
+        thickness = read_csp_double(f)
+        rgb = [read_csp_int(f) >> 24 for _ in range(3)]
+        logging.debug('EffectEdge %s %s %s', enabled, thickness, rgb)
+
+        if not enabled:
+            return
+
+        f = io.BytesIO()
+        write_int(f, 0)
+        write_int(f, 16) # descriptor version
+        obj = PsdObjDescriptorWriter(f)
+
+        obj.write_obj_header('null', 3)
+        obj.write_untf('Scl ', '#Prc', 100.0)
+        obj.write_bool('masterFXSwitch', True)
+
+        # Third item (object)
+        obj.write_field('FrFX', 'Objc')
+        obj.write_obj_header('FrFX', 7)
+
+        obj.write_bool('enab', True)
+        obj.write_enum2('Styl', 'FStl', 'OutF')
+        obj.write_enum2('PntT', 'FrFl', 'SClr')
+        obj.write_enum2('Md  ', 'BlnM', 'Nrml')
+        obj.write_untf('Opct', '#Prc', 100.0)
+        obj.write_untf('Sz  ', '#Pxl', thickness + 0.5)
+
+        # color, 7-th element in FrFx
+        obj.write_field('Clr ', 'Objc')
+        obj.write_obj_header('RGBC', 3)
+        obj.write_doub('Rd  ', rgb[0])
+        obj.write_doub('Grn ', rgb[1])
+        obj.write_doub('Bl  ', rgb[2])
+
+        data = obj.f.getvalue()
+        data += bytes(-len(data) % 4) # padding 4 bytes
+        layer_tags.append((b'lfx2', data))
+
+
+
     def add_filter_layer_levels_info(layer_tags, d):
         def map_csp_middle_to_psd_inv_gamma_for_levels(x):
             if x <= 0:
@@ -2264,6 +2317,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         layer_tags = [ ]
 
         add_fill_color_for_background_layer(layer_tags, layer)
+        add_stroke_outline(layer_tags, layer)
         add_filter_layer_info(layer_tags, layer)
         add_gradient_layer_info(layer_tags, layer)
 
@@ -2865,6 +2919,8 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     # optimize rle output - remove margins
 
     #5) write layer effects (stroke):
+
+    #6) allow export gradient as raster layers (similar to text)
 
 
 def extract_csp(filename):
