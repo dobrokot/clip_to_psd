@@ -1599,8 +1599,8 @@ GradientColorStop = namedtuple('GradientColorStop', ['r', 'g', 'b', 'opacity', '
 
 GradientGeometryData = namedtuple('GradientGeometryData', [
     'repeat_mode', 'shape', 'anti_aliasing',
-    'rotscale_a1', 'rotscale_a2', 'rotscale_b',
-    'pos_x', 'pos_y', 'rotscale_c1', 'rotscale_c2'
+    'ellipse_second_diameter',
+    'pos_start_x', 'pos_start_y', 'pos_end_x', 'pos_end_y'
 ])
 
 def parse_gradient_color_stop(f):
@@ -1627,17 +1627,17 @@ def parse_gradient_flat_color_data(f):
     return (True, flat_rgb_tuple)
 
 def parse_gradient_geometry_data(f):
-    return GradientGeometryData(
-        repeat_mode = read_csp_int(f), # repeat mode outside gradient boundaries.  clip/repeat/mirror repeat/empty - 0,1,2,3
-        shape = read_csp_int(f), # linear/circle/ellipse - 0,1,2
-        anti_aliasing = read_csp_int(f), # 0/1
-        rotscale_a1 = read_csp_double(f),
-        rotscale_a2 = read_csp_double(f),
-        rotscale_b = read_csp_double(f),
-        pos_x = read_csp_double(f),
-        pos_y = read_csp_double(f),
-        rotscale_c1 = read_csp_double(f),
-        rotscale_c2 = read_csp_double(f))
+    repeat_mode = read_csp_int(f) # repeat mode outside gradient boundaries.  clip/repeat/mirror repeat/empty - 0,1,2,3
+    shape = read_csp_int(f) # linear/circle/ellipse - 0,1,2
+    anti_aliasing = read_csp_int(f) # 0/1
+    _diameter_unused = read_csp_double(f) # always 2x of center and endpoint distance for circle/ellipse, have no meaning for linear
+    ellipse_second_diameter = read_csp_double(f)
+    _angle_rotation_unused = read_csp_double(f) # angle of rotation in degrees, but it's updated only for circle/ellipse.
+    pos_start_x = read_csp_double(f)
+    pos_start_y = read_csp_double(f)
+    pos_end_x = read_csp_double(f)
+    pos_end_y = read_csp_double(f)
+    return GradientGeometryData(repeat_mode, shape, anti_aliasing, ellipse_second_diameter, pos_start_x, pos_start_y, pos_end_x, pos_end_y)
 
 def parse_gradient_colors(f):
     _unknown = read_csp_int(f)
@@ -2041,6 +2041,131 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             else:
                 logging.warning("not implemented export of filter type %s %s", filter_index, filter_name_table.get(filter_index, ''))
 
+    def get_gradient_layer_binary_data_for_psd(psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type, color_stops_psd, transparency_stops_psd):
+        f = io.BytesIO()
+        write_int(f, 16) # descriptor version
+        obj = PsdObjDescriptorWriter(f)
+
+        # Writing the main object
+        obj.write_obj_header('null', 6)
+        obj.write_untf('Angl', '#Ang', angle_psd)
+        obj.write_enum2('Type', 'GrdT', psd_gradient_type) # 'Lnr ' / 'Rdl '
+        obj.write_bool('Algn', False)
+        # key_name=b'Angl' type_name=b'UntF' unit_name=b'#Ang' value=51.71
+        # key_name=b'Scl ' type_name=b'UntF' unit_name=b'#Prc' value=90.
+        obj.write_untf('Scl ', '#Prc', scale_psd)
+
+        # Writing nested object 'Ofst'
+        obj.write_field('Ofst', 'Objc')
+        obj.write_obj_header('Pnt ', 2)
+        obj.write_untf('Hrzn', '#Prc', psd_gradient_offset[0])
+        obj.write_untf('Vrtc', '#Prc', psd_gradient_offset[1])
+
+        # Writing nested object 'Grad'
+        obj.write_field('Grad', 'Objc')
+        obj.write_obj_header_named('Grdn', 5, 'Gradient')
+        obj.write_field('Nm  ', 'TEXT')
+        obj.write_unicode_str('$$$/ImportedFromCSP/SomeGradient=Some_Gradient')
+        obj.write_enum2('GrdF', 'GrdF', 'CstS')
+        obj.write_doub('Intr', 4096.0)
+
+        # Writing list of color stops.
+        # (r, g, b, position 0..100 -> 0..4096, middle 0..100)
+        obj.write_field('Clrs', 'VlLs')
+        write_int(f, len(color_stops_psd))  # list count
+
+        for (r, g, b, position, middle_point) in color_stops_psd:
+            obj.write_list_item('Objc')
+            obj.write_obj_header('Clrt', 4)
+            obj.write_field('Clr ', 'Objc')
+            obj.write_obj_header('RGBC', 3)
+            obj.write_doub('Rd  ', r)
+            obj.write_doub('Grn ', g)
+            obj.write_doub('Bl  ', b)
+            obj.write_enum2('Type', 'Clry',  'UsrS')
+            obj.write_long('Lctn', position)
+            obj.write_long('Mdpn', middle_point)
+
+        # Writing list of transparency_stops.
+        obj.write_field('Trns', 'VlLs')
+        write_int(f, len(transparency_stops_psd))  # list count
+
+        for (opacity, position, middle_point) in transparency_stops_psd:
+            obj.write_list_item('Objc')
+            obj.write_obj_header('TrnS', 3)
+            obj.write_untf('Opct', '#Prc', opacity)
+            obj.write_long('Lctn', position)
+            obj.write_long('Mdpn', middle_point)
+
+        data = f.getvalue()
+        data += bytes(-len(data) % 4) # padding 4 bytes
+        return data
+
+
+    def convert_clip_gradient_to_psd_gradient_math(geometry_data, layer):
+        gd = geometry_data
+        start_x = gd.pos_start_x + layer.LayerOffsetX  # -LayerRenderOffscrOffsetX - ?
+        start_y = gd.pos_start_y + layer.LayerOffsetY
+        end_x = gd.pos_end_x + layer.LayerOffsetX
+        end_y = gd.pos_end_y + layer.LayerOffsetY
+        dx = end_x - start_x
+        dy = end_y - start_y
+        w, h = int(sqlite_info.width), int(sqlite_info.height)
+        shape_name = { 0:"linear", 1:"circular", 2:"ellipse" }.get(gd.shape, "unknown_" + str(gd.shape))
+        scale_psd = abs(dy)/h if (abs(dx*h) < abs(dy*w)) else abs(dx)/w
+        scale_psd *= 100.0
+        angle_psd = -math.atan2(dy, dx) * 180 / math.pi
+        if shape_name == "linear":
+            gradient_offset_x_psd_px = (end_x + start_x)/2  - w/2
+            gradient_offset_y_psd_px = (end_y + start_y)/2  - h/2
+            psd_gradient_type = 'Lnr '
+        else:
+            if (shape_name != "circular"):
+                logging.warning("only linear and circular gradients export is supported, got %s. Forcing circular gradient type.", shape_name)
+            scale_psd *= 2
+            gradient_offset_x_psd_px = start_x - w/2
+            gradient_offset_y_psd_px = start_y - h/2
+            psd_gradient_type = 'Rdl '
+        layer_offset1 = (layer.LayerOffsetX, layer.LayerOffsetY)
+        layer_offset2 = (layer.LayerRenderOffscrOffsetX, layer.LayerRenderOffscrOffsetY)
+        psd_gradient_offset_px = (gradient_offset_x_psd_px, gradient_offset_y_psd_px)
+        logging.debug('gradient start--end point: %s -- %s, layer offsets: %s %s, shape: %s(%s), result psd offset in pixels: %s, width,height: %s', (start_x, start_y), (end_x, end_y), layer_offset1, layer_offset2, shape_name, gd.shape, psd_gradient_offset_px, (w, h))
+        gradient_offset_x_psd = gradient_offset_x_psd_px * 100.0 / w
+        gradient_offset_y_psd = gradient_offset_y_psd_px * 100.0 / h
+        psd_gradient_offset = (gradient_offset_x_psd, gradient_offset_y_psd)
+        assert len(psd_gradient_type) == 4 # PSD gradient binary uses 4 bytes for property values with space
+        return (psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type)
+
+    def convert_color_stops_to_psd(color_stops, geometry_data):
+        # Middle point is set always to 50% here. It affects gradient wolor-stops transition,
+        # but it's complicated (but possible) to estimate middle point from ClipStudioPaint gradient curves.
+        # So, at this moment curves are dropped, and middle point is always 50%.
+
+        gd = geometry_data
+        repeat_mode_name = { 0:"clip", 1:"repeat", 2:"mirror", 3:"transparent" }.get(gd.repeat_mode, "unknown_" + str(gd.repeat_mode))
+        supported_modes = ("clip", "transparent")
+        if repeat_mode_name not in supported_modes:
+            logging.warning("gradient repeat mode %s is not supported, only %s are supported", repeat_mode_name, supported_modes)
+
+        color_stops_psd = [(c.r, c.g, c.b, int(c.position / 100.0 * 4096), 50) for c in color_stops]
+
+        transparency_stops_psd = [ [c.opacity, int(c.position/100*4096), 50] for c in color_stops ]
+        trs = transparency_stops_psd
+        if (repeat_mode_name == "transparent"):
+            # add artifical transparency stops at start and end of list
+            trs.insert(0, (0, 0, 0))
+            trs.append((0, 4096, 100))
+            i = 1
+            # make transparency_stops different after modification
+            while i < len(trs) and trs[i-1][1] >= trs[i][1]:
+                trs[i][1] = trs[i-1][1] + (4096//100+1)
+            i = len(trs) - 1
+            while i > 0  and trs[i-1][1] >= trs[i][1]:
+                trs[i-1][1] = trs[i][1] - (4096//100+1)
+        trs.sort(key = lambda t: t[1]) # sort by positions
+        return color_stops_psd, transparency_stops_psd
+
+
     def add_gradient_layer_info(layer_tags, layer):
         gradient_info = getattr(layer, 'GradationFillInfo', None)
         if gradient_info:
@@ -2053,14 +2178,11 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
                 logging.info("exporting gradient as flat color")
                 add_fill_color_for_layer(layer_tags, fill_color = layer_gradient_info[1])
             else:
-                logging.warning("exporting gradient - is not implemented this moment")
-                #logging.info("exporting gradient with color stops")
-                #_, (color_stops, geometry_data) = layer_gradient_info
-                #for x in color_stops:
-                #    print(x)
-                #print()
-                #for k, v in geometry_data._asdict().items():
-                #    print(k, v)
+                _, (color_stops, geometry_data) = layer_gradient_info
+                (psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type) = convert_clip_gradient_to_psd_gradient_math(geometry_data, layer)
+                color_stops_psd, transparency_stops_psd = convert_color_stops_to_psd(color_stops, geometry_data)
+                data = get_gradient_layer_binary_data_for_psd(psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type, color_stops_psd, transparency_stops_psd)
+                layer_tags.append((b'GdFl', data))
 
     def export_layer(f, layer_entry, txt, make_invisible):
         layer_type, layer = layer_entry
@@ -2140,8 +2262,8 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         write_layer_name(f, layer_name)
 
         layer_tags = [ ]
-        add_fill_color_for_background_layer(layer_tags, layer)
 
+        add_fill_color_for_background_layer(layer_tags, layer)
         add_filter_layer_info(layer_tags, layer)
         add_gradient_layer_info(layer_tags, layer)
 
@@ -2529,10 +2651,14 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         def write_key(self, x, write4as0 = True):
             write_int(self.f, (0 if (len(x) == 4 and write4as0) else len(x)))
             self.f.write(x.encode('ascii'))
-        def write_obj_header(self, class_id, field_count, write4as0 = True):
-            self.write_unicode_str('') # empty class name
+        def write_obj_header_named(self, class_id, field_count, class_name, write4as0 = True):
+            self.write_unicode_str(class_name)
             self.write_key(class_id, write4as0)
             write_int(self.f, field_count) # obj field count
+        def write_obj_header(self, class_id, field_count, write4as0 = True):
+            self.write_obj_header_named(class_id, field_count, class_name = '', write4as0 = write4as0)
+        def write_list_item(self, typename):
+            self.f.write(typename.encode('ascii'))
         def write_field(self, field, field_type, write4as0 = True):
             self.write_key(field, write4as0)
             assert len(field_type) == 4
@@ -2550,9 +2676,9 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         def write_doub(self, field_name, value):
             self.write_field(field_name, 'doub')
             self.f.write(struct.pack('>d', value))
-        def write_untf(self, field_name, value):
+        def write_untf(self, field_name, unit_name, value):
             self.write_field(field_name, 'UntF')
-            self.f.write(b'#Pnt')
+            self.f.write(unit_name.encode('ascii'))
             self.f.write(struct.pack('>d', value))
         def write_long(self, field_name, value, write4as0 = True):
             self.write_field(field_name, 'long', write4as0)
@@ -2583,10 +2709,10 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             field_name = class_id
             obj.write_field(field_name, 'Objc')
             obj.write_obj_header(class_id, 4)
-            obj.write_untf('Left', left)
-            obj.write_untf('Top ', top)
-            obj.write_untf('Rght', right)
-            obj.write_untf('Btom', bottom)
+            obj.write_untf('Left', '#Pnt', left)
+            obj.write_untf('Top ', '#Pnt', top)
+            obj.write_untf('Rght', '#Pnt', right)
+            obj.write_untf('Btom', '#Pnt', bottom)
 
         write_bounds('bounds', min_x, min_y, max_x, max_y)
         write_bounds('boundingBox', min_x, min_y, max_x, max_y)
@@ -2739,7 +2865,6 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     # optimize rle output - remove margins
 
     #5) write layer effects (stroke):
-    #6) solid fill, background, gradients layers
 
 
 def extract_csp(filename):
