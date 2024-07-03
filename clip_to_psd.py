@@ -170,7 +170,7 @@ def extract_csp_chunks_data(file_chunks_list, out_dir, chunk_to_layers, layer_na
                 layer_name = layer_names.get(id, f'no-name-{id}').strip()
                 if not layer_name:
                     layer_name = '{empty}'
-                layer_name_sanitized = re.sub(r'''[\0-\x1f'"/\\:*?<>| ]''', '_', layer_name) 
+                layer_name_sanitized = re.sub(r'''[\0-\x1f'"/\\:*?<>| ]''', '_', layer_name)[0:80]
                 return layer_name_sanitized
 
             layer_name_str = ','.join(make_layer_name_for_file(id) for id in chunk_to_layers.get(chunk_id, []))
