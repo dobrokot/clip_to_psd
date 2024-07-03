@@ -22,7 +22,7 @@ The script exports some advanced features beyond basic pixel layers, such as tex
 
 ## Features
 
-- Exports all basic layer properties, including visibility, alpha lock, folder structure, and all blending modes. Exports pixel data of layers.
+- Exports all basic layer properties, including visibility, alpha lock, folder structure, and all blending modes. Exports pixel data of layers with maks and mask editing properties.
 - Supports exporting text as editable vector text layers with common features such as transformation, color, and typeface. This feature is not available for export even in the original Clip Studio Paint.
 - Supports some filter layer types: HSL, Levels, Brightness/Contrast, and Curves. Also supports exporting gradient and solid color layers. Gradient layer export may be limited for complex settings; the script allows exporting both vector and raster versions of gradient layers if the .clip file contains pixel data from gradients. Note that HSL settings are interpreted differently by PSD and CLIP files, which may require reviewing the export result.
 - The outline effect of a layer is exported as the PSD Stroke layer property. This also applies to outlined text.
