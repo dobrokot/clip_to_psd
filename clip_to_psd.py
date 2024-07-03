@@ -1866,8 +1866,33 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         has_fill_color = getattr(layer, 'DrawColorEnable', None)
         if has_fill_color:
             logging.info("exporting solid color layer '%s'", layer.LayerName)
-            fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32)*255 for x in ['Red', 'Green', 'Blue'] ]
+            fill_color = [ getattr(layer, 'DrawColorMain' + x, 0)/(2**32 - 1)*255 for x in ['Red', 'Green', 'Blue'] ]
             add_fill_color_for_layer(layer_tags, fill_color)
+
+    def add_layer_color_property(layer_tags, layer):
+        use_color = getattr(layer, 'LayerUsePaletteColor', 0)
+        fill_color_csp = [ getattr(layer, 'LayerPalette' + x, None) for x in ['Red', 'Green', 'Blue'] ]
+
+        if not use_color or any(x == None for x in fill_color_csp):
+            return
+        fill_color = [ x/(2**32 - 1)*255 for x in  fill_color_csp]
+        # PSD has limited set of colors for layers, CSP allows arbitrary colors. Map the arbitrary color to the closest PSD allowed color.
+        colors = [
+            (255, 0, 0),     # Red
+            (255, 128, 0),   # Orange
+            (255, 255, 0),   # Yellow
+            (128, 255, 64),  #  Green
+            (128, 128, 255), #  Blue
+            (200, 128, 255), #  Purple
+            (100, 100, 100), #  Gray
+        ]
+        def distance(color1, color2):
+            return sum((x-y)**2 for x, y in zip(color1, color2))
+
+        _, closest_color_index = min( (distance(c, fill_color), i) for i, c in enumerate(colors) )
+        closest_color_index += 1
+        layer_tags.append((b'lclr', closest_color_index.to_bytes(2, 'big') + b'\x00' * 6))
+
 
     def add_stroke_outline(layer_tags, layer):
         layer_effect_data = getattr(layer, 'LayerEffectInfo', None)
@@ -2326,6 +2351,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         add_stroke_outline(layer_tags, layer)
         add_filter_layer_info(layer_tags, layer)
         add_gradient_layer_info(gradient_info, layer_tags, layer)
+        add_layer_color_property(layer_tags, layer)
 
         if lsct_folder_tag != None:
             layer_tags.append(( b'lsct', lsct_folder_tag ))
@@ -2942,10 +2968,6 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     export_psd()
 
     logging.info("PSD export done")
-
-
-    # TODO: layer color ( lclr )
-
 
 
 def extract_csp(filename):
