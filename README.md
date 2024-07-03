@@ -21,7 +21,7 @@ Download the script clip_to_psd.py to any directory and run it with Python. The 
 
 ## Caution
 
-The script exports some advanced features beyond basic pixel layers, such as text or backgrounds defined as solid fill layers without pixels. Clip Studio Paint cannot read these features back from the PSD file; only Photoshop or GIMP can. This often occurs with the background layer, which appears transparent when the PSD is reopened in Clip Studio Paint because it cannot recognize vector solid fill layers in the PSD. Clip Studio Paint itself exports such layers as plain pixel rasterized layers, without attempting to preserve their vector nature.
+The script exports some advanced features beyond basic pixel layers, such as text or backgrounds defined as solid fill layers without pixels. Clip Studio Paint cannot read these features back from the PSD file; only Photoshop can. This often occurs with the background layer, which appears transparent when the PSD is reopened in Clip Studio Paint because it cannot recognize vector solid fill layers in the PSD. Clip Studio Paint itself exports such layers as plain pixel rasterized layers, without attempting to preserve their vector nature.
 
 ## Features
 
