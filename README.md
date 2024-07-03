@@ -4,7 +4,7 @@
 A Python script to convert Clip Studio Paint (.clip) files to PSD format without complicated external dependencies.
 
 ## Introduction
-This script is designed for those who want to convert their Clip Studio Paint files to the widely-used PSD format. It is currently the only existing tool that works as standalone software on a local machine capable of running Python, including Linux. This means you can export .clip files to .psd without needing to install Clip Studio Paint software.Additionally, this script exports several properties that Clip Studio Paint either does not export or exports as rasterized, non-editable layers, such as:  Text as editable text; Filter layers; Gradients and Solid Color layers; Outline effect; Color tags for layers. This script works as command line tool. 
+This script is designed for those who want to convert their Clip Studio Paint files to the widely-used PSD format. It is currently the only existing tool that works as standalone software on a local machine capable of running Python, including Linux. This means you can export .clip files to .psd without needing to install Clip Studio Paint software. Additionally, this script exports several properties that Clip Studio Paint either does not export or exports as rasterized, non-editable layers, such as:  Text as editable text; Filter layers; Gradients and Solid Color layers; Outline effect; Color tags for layers. This script works as command line tool. 
 
 ## Basic Usage
 
