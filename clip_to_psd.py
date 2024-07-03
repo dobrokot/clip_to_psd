@@ -2228,28 +2228,22 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         return color_stops_psd, transparency_stops_psd
 
 
-    def add_gradient_layer_info(layer_type, layer_tags, layer):
-        if layer_type != "lt_gradient":
+    def add_gradient_layer_info(gradient_info, layer_tags, layer):
+        if not gradient_info:
             return
-        gradient_info = getattr(layer, 'GradationFillInfo', None)
-        assert gradient_info #must be true because of layer_type check above
 
         logging.debug("exporting gradient")
-        #print(layer.LayerName, '-', gradient_info.hex(' '))
-        layer_gradient_info = parse_gradation_fill_data_of_gradient_layers(gradient_info)
-        if layer_gradient_info == None:
-            return
-        if layer_gradient_info[0]:
+        if gradient_info[0]:
             logging.info("exporting gradient as flat color")
-            add_fill_color_for_layer(layer_tags, fill_color = layer_gradient_info[1])
+            add_fill_color_for_layer(layer_tags, fill_color = gradient_info[1])
         else:
-            _, (color_stops, geometry_data) = layer_gradient_info
+            _, (color_stops, geometry_data) = gradient_info
             (psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type) = convert_clip_gradient_to_psd_gradient_math(geometry_data, layer)
             color_stops_psd, transparency_stops_psd = convert_color_stops_to_psd(color_stops, geometry_data)
             data = get_gradient_layer_binary_data_for_psd(psd_gradient_offset, angle_psd, scale_psd, psd_gradient_type, color_stops_psd, transparency_stops_psd)
             layer_tags.append((b'GdFl', data))
 
-    def export_layer(f, layer_entry, txt, make_invisible):
+    def export_layer(f, layer_entry, make_invisible, txt=None, gradient_info=None):
         layer_type, layer = layer_entry
         logging.info("exporting '%s'", layer.LayerName if layer else '-')
 
@@ -2331,7 +2325,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         add_fill_color_for_background_layer(layer_tags, layer)
         add_stroke_outline(layer_tags, layer)
         add_filter_layer_info(layer_tags, layer)
-        add_gradient_layer_info(layer_type, layer_tags, layer)
+        add_gradient_layer_info(gradient_info, layer_tags, layer)
 
         if lsct_folder_tag != None:
             layer_tags.append(( b'lsct', lsct_folder_tag ))
@@ -2872,15 +2866,27 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
                 # don't parse text data, if command line arguments don't require this
                 text_info = export_layer_text(layer_entry)
 
-            is_gradient_layer = bool(getattr(l, "GradationFillInfo", None))
+            gradient_info = None
+            if not (cmd_args.gradient_layer_raster != 'enable' and cmd_args.gradient_layer_vector == 'disable'):
+                gradient_bytes_data = getattr(l, "GradationFillInfo", None)
+                if gradient_bytes_data:
+                    gradient_info = parse_gradation_fill_data_of_gradient_layers(gradient_bytes_data)
+
+            # don't manage raster/vector export of flat color layers with command line options targeted at gradients.
+            # They never has pixel data in .clip files, so attempt to get perfect original gradient layers pixel
+            # data by request of rasterized layer could work for non-flat gradient layers, but definitely will corrupt flat
+            # layers export at the same time.
+            is_gradient_layer = bool(gradient_info) and (False == gradient_info[0])
+            is_flat_color_layer = bool(gradient_info) and (True == gradient_info[0])
+
             disabled_raster_because_text = bool(text_info) and cmd_args.text_layer_raster == "disable"
-            disabled_raster_because_gradient = is_gradient_layer and cmd_args.gradient_layer_raster == "disable"
+            disabled_raster_because_gradient = (is_gradient_layer and cmd_args.gradient_layer_raster == "disable")
             invisible_because_text = bool(text_info) and cmd_args.text_layer_raster == "invisible"
             invisible_because_gradient = is_gradient_layer and cmd_args.gradient_layer_raster == "invisible"
 
-            if not (disabled_raster_because_text or disabled_raster_because_gradient):
+            if not (disabled_raster_because_text or disabled_raster_because_gradient or is_flat_color_layer):
                 make_invisible = invisible_because_text or invisible_because_gradient
-                channels_data.append(export_layer(f, layer_entry, None, make_invisible))
+                channels_data.append(export_layer(f, layer_entry, make_invisible, None))
 
             if cmd_args.text_layer_vector != 'disable':
                 _, layer = layer_entry
@@ -2888,12 +2894,16 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
                     logging.info("exporting '%s' as text layer", layer.LayerName if layer else '-')
                 for txt in text_info:
                     make_invisible = cmd_args.text_layer_vector == 'invisible'
-                    channels_data.append(export_layer(f, ('lt_text', layer), txt, make_invisible))
+                    channels_data.append(export_layer(f, ('lt_text', layer), make_invisible, txt = txt))
 
             if is_gradient_layer and cmd_args.gradient_layer_vector != 'disable':
                 _, layer = layer_entry
                 make_invisible = cmd_args.gradient_layer_vector == 'invisible'
-                channels_data.append(export_layer(f, ('lt_gradient', layer), None, make_invisible))
+                channels_data.append(export_layer(f, ('lt_gradient', layer), make_invisible, gradient_info = gradient_info))
+
+            if is_flat_color_layer:
+                channels_data.append(export_layer(f, ('lt_gradient', layer), make_invisible = False, gradient_info = gradient_info))
+
 
         for layer_channels in channels_data:
             for file_data in layer_channels:
@@ -2933,17 +2943,9 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
 
     logging.info("PSD export done")
 
-    # less garbge in output and command line - put temporary sqllite near result psd (keep if asked), don't write layer_info.txt, write pngs if asked from cmd-line
 
-    # FilterLayerInfo - parse adjusments layers
+    # TODO: layer color ( lclr )
 
-    # layer color ( lclr )
-
-    # optimize rle output - remove margins
-
-    #5) write layer effects (stroke):
-
-    #6) allow export gradient as raster layers (similar to text)
 
 
 def extract_csp(filename):
@@ -3029,8 +3031,8 @@ def parse_command_line():
     parser.add_argument('--keep-sqlite', help='Keep the temporary SQLite file, path is derived from output psd or output directory if not specified with --sqlite-file', action='store_true')
     parser.add_argument('--text-layer-raster', help='Export text layers as raster: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='enable')
     parser.add_argument('--text-layer-vector', help='Export text layers as vector: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='invisible')
-    parser.add_argument('--gradient-layer-raster', help='Export gradient layers as raster: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='invisible')
-    parser.add_argument('--gradient-layer-vector', help='Export gradient layers as vector: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='enable')
+    parser.add_argument('--gradient-layer-raster', help='Export gradient layers as raster: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='enable')
+    parser.add_argument('--gradient-layer-vector', help='Export gradient layers as vector: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='invisible')
     parser.add_argument('--ignore-zlib-errors', help='ignore decompression error for damaged data', action='store_true')
     parser.add_argument("--blank-psd-preview", help="--don't generate psd thumbnail preview (this allows to avoid Image module import, and works faster/gives smaller output file)", action='store_true')
     parser.add_argument('--psd-empty-bitmap-data', help='export bitmaps as empty to psd, usefull for faster export when pixel data is not needed', action='store_true')
