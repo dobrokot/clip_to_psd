@@ -9,7 +9,9 @@ To convert a .clip file to a .psd file, run the following command:
 
 `python clip_to_psd.py input.clip -o output.psd`
 
-*Note: Python 3 and the Python PIL library are required. The Python PIL library is optional but needed for PSD thumbnail previews or exporting layers as PNG files.*
+## Dependencies:
+- Python 3 is required.
+- The Python PIL library is optional but needed for PSD thumbnail previews or exporting layers as PNG files. Use the --blank-psd-preview option to avoid importing the PIL library.
 
 ## Caution
 
