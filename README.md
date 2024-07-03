@@ -27,6 +27,14 @@ The script exports some advanced features beyond basic pixel layers, such as tex
 - Supports some filter layer types: HSL, Levels, Brightness/Contrast, and Curves. Also supports exporting gradient and solid color layers. Gradient layer export may be limited for complex settings; the script allows exporting both vector and raster versions of gradient layers if the .clip file contains pixel data from gradients. Note that HSL settings are interpreted differently by PSD and CLIP files, which may require reviewing the export result.
 - The outline effect of a layer is exported as the PSD Stroke layer property. This also applies to outlined text.
 
+## Missing features
+- Vector layers export is not supported; they are always exported as rasterized if the .clip file contains the pixel data. It seems newer versions of CSP drop the pixel data for Vector layers.
+- Tone and Frame Border export is also not supported, with the same limitations and workarounds as Vector layers.
+- Export of Color Balance, Posterization, Binarization, and Gradient Map effect layers is not supported.
+- All animation data (timelines, etc.) is outside the scope of this script.
+- External layer file references are not exported.
+- Ruler, 3D, and other advanced types of layers are not exported
+
 ## Additional Options
 
 To see more options, including how to export layers as raw PNG files or how to export the internal SQLite database without exporting pixel data, use the `--help` command-line option.
