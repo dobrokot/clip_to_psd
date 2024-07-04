@@ -26,11 +26,11 @@ Note about GIMP: GIMP has limitations in reading exported PSD files, most notabl
 
 ### 3. Compare the exported PSD with the original .clip output:
 
-   - Overlay or switch the copied/exported image in an image viewer to compare against the original .clip output, saved in `test_export_all_features_expected_output.png`.
+   - Overlay or switch the copied/exported image in an image viewer to compare against the original .clip output, saved in `test_export_all_features_reference_output.png`.
    - If you switch files in image viwer, it could help to create empty folder to compare files without other image files
      ```
      mkdir tmp; rm tmp/*.png
-     cp exported_vector.png test_export_all_features_expected_output.png tmp
+     cp exported_vector.png exported_raster_current_output.png tmp
       ```
 
 
@@ -43,6 +43,8 @@ Note about GIMP: GIMP has limitations in reading exported PSD files, most notabl
 - Vector Export Mode:
   - The gradient and text in vector mode may display slight differences compared to the original.
   - All other elements should be identical to the original PNG.
+
+The output should closely match either `exported_raster_current_output.png` or `exported_vector_current_output.png`. If there are any differences, the source of the differences should be investigated. If the changes are expected, the new output version should be committed. Slight pixel-level micro-differences may exist due to different versions of Photoshop.
 
 ## Additional Notes
 
