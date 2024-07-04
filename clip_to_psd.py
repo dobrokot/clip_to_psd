@@ -16,10 +16,12 @@ import traceback
 import math
 from collections import namedtuple
 from functools import cmp_to_key
-# import Image from PIL:
-# also imports Image from PIL if command line requires this. module Image is not loaded, if --blank-psd-preview is used, and no output dir for PNGs. So it's possible to export PSD with only built-in python modules.
 import itertools
 import argparse
+
+#pylint: disable=import-outside-toplevel
+# import Image from PIL:
+# also imports Image from PIL if command line requires this. module Image is not loaded, if --blank-psd-preview is used, and no output dir for PNGs. So it's possible to export PSD with only built-in python modules.
 
 
 BlockDataBeginChunk = 'BlockDataBeginChunk'.encode('UTF-16BE')
@@ -1719,6 +1721,13 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
             assert 0 <= i < 2**32, (i, "size is too large for 32-bit psd, try Big Psd output (PSB)")
         f.write(i.to_bytes(4*psd_version, 'big'))
 
+    def check_pil_import():
+        try:
+            from PIL import Image
+        except ImportError:
+            logging.error("Error: Failed to import PIL. Ensure it's installed (search for python 'pillow' package) or explicitly use --blank-psd-preview to avoid import.")
+            raise
+
     def export_canvas_preview(f):
         logging.info("exporting canvas preview")
         # attempt to export root folder bitmap failed - ClipStudioPaint often supply partially saved bitmaps for folders with holes at random places.
@@ -1729,6 +1738,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
         if cmd_args.blank_psd_preview:
             channels = [ bytes(canvas_width*canvas_height) for _ch in range(3) ]
         else:
+            check_pil_import()
             from PIL import Image
             if len(sqlite_info.canvas_preview_data):
                 preview = Image.open(io.BytesIO(sqlite_info.canvas_preview_data[0]))
