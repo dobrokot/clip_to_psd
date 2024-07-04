@@ -1718,7 +1718,7 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     def write_int_psb(f, i):
         assert 0 <= i < 2**64, i
         if psd_version == 1:
-            assert 0 <= i < 2**32, (i, "size is too large for 32-bit psd, try Big Psd output (PSB)")
+            assert 0 <= i < 2**32, (i, "size is too large for 32-bit psd, try Big Psd output (PSB) with --psd-version=2")
         f.write(i.to_bytes(4*psd_version, 'big'))
 
     def check_pil_import():
