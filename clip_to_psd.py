@@ -2967,8 +2967,6 @@ def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
 
     export_psd()
 
-    logging.info("PSD export done")
-
 
 def extract_csp(filename):
     with open(filename, 'rb') as f:
@@ -3042,7 +3040,7 @@ def parse_command_line():
         description='Convert Clip Studio Paint files to PSD or PSB format.\nBasic usage: python clip_to_psd.py input.clip -o output.psd',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    
+
     parser.add_argument('input_file', help='Input CLIP file to be converted.', type=str) # Mandatory input file name
     parser.add_argument('-o', '--output-psd', help='Output PSD file name.', type=str)
     parser.add_argument('--psd-version', help='Version of output PSD: 1 for PSD, 2 for PSB.', type=int, choices=[1, 2], default=1)
@@ -3069,7 +3067,11 @@ def parse_command_line():
         cmd_args.keep_sqlite = True
 
     if not (cmd_args.keep_sqlite or cmd_args.output_dir or cmd_args.output_psd):
-        parser.error('At least one output must be specified: --keep-sqlite, --output-dir, or --output.')
+        cmd_args.output_psd = os.path.splitext(cmd_args.input_file)[0] + '.psd'
+        if os.path.isfile(cmd_args.output_psd):
+            logging.error("output file '%s' already exists, would not overwrite if not explicitly requested by -o option.", cmd_args.output_psd)
+            sys.exit(1)
+
 
     if cmd_args.output_psd:
         ext = os.path.splitext(cmd_args.output_psd.lower())[1]
@@ -3096,6 +3098,9 @@ def parse_command_line():
 def main():
     parse_command_line()
     extract_csp(cmd_args.input_file)
+
+    outputs = [(cmd_args.sqlite_file if cmd_args.keep_sqlite else None), cmd_args.output_dir, cmd_args.output_psd]
+    logging.info("export done to %s", ', '.join(f"'{x}'" for x in outputs if x))
 
 if __name__ == "__main__":
     main()
