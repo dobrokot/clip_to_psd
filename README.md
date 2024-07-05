@@ -18,7 +18,8 @@ To convert a .clip file to a .psd file, run the following command:
 
 ## Installation
 Download the script clip_to_psd.py to any directory and run it with Python. The script is not available as a pip or deb package yet.
-It's higly recommended to install python PIL Image (pillow) library, search for "pillow" package in your python package system (_one_ of `pip install Pillow` ; `sudo apt-get install python3-pil` ; `brew install pillow`)
+
+It's highly recommended to install python PIL Image (pillow) library. Search for "pillow" package in your python package system (_one_ of `pip install Pillow` ; `sudo apt-get install python3-pil` ; `brew install pillow`)
 
 ## Caution
 
