@@ -304,7 +304,7 @@ def parse_tysh_txt_tag(f):
         print('unread data:', unread_data)
 
 
-# much faster to create all possible bytearrays at start then create them in the inner loop of decode_rle. Takes about 0.05sec at start and 5mb of RAM
+# much faster to create all possible bytearrays at start than create them in the inner loop of decode_rle. Takes about 0.05sec at start and 5mb of RAM
 table_of_all_bytearrays = [[bytearray([i]*l) for i in range(0, 256)] for l in range(128+1)]
 
 def decode_rle(data, start, end, out_size):
