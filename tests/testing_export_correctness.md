@@ -1,4 +1,4 @@
-# Testing Process for Converting .clip Files to .psd Files
+# Testing process for converting .clip Files to .psd Files
 
 Testing the ability of Photoshop to interpret exported PSD files requires some manual work. Attempting to automate this process could introduce additional difficulties, particularly because Photoshop may prompt to re-render text layers. However, raster exports should not face such issues.
 
