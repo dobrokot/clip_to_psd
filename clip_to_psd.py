@@ -1698,6 +1698,19 @@ def parse_gradation_fill_data_of_gradient_layers(data):
             return None
         return (False, (color_stops, geometry_data))
 
+def save_preview_image(output_filename, sqlite_info):
+    from PIL import Image
+    if not sqlite_info.canvas_preview_data and len(sqlite_info.canvas_preview_data):
+        logging.error("canvas preview data not found in .clip file")
+        sys.exit(1)
+
+    canvas_width = int(sqlite_info.width)
+    canvas_height = int(sqlite_info.height)
+
+    preview = Image.open(io.BytesIO(sqlite_info.canvas_preview_data[0]))
+    logging.info("saved image preview size= %s x %s px; %s; canvas size = %s x %s", preview.size[0], preview.size[1], preview.mode, canvas_width, canvas_height)
+    preview.save(output_filename)
+
 def save_psd(output_psd, chunks, sqlite_info, layer_ordered):
     psd_version = cmd_args.psd_version 
     layer_bitmaps = get_layers_bitmaps(chunks, sqlite_info)
@@ -3008,8 +3021,9 @@ def extract_csp(filename):
                 layer_ordered.append(('lt_bitmap', l))
             current_id = l.LayerNextIndex
 
-    logging.info('Layers names in tree:')
-    print_layer_folders(sqlite_info.root_folder, 0)
+    if cmd_args.output_psd or cmd_args.output_dir:
+        logging.info('Layers names in tree:')
+        print_layer_folders(sqlite_info.root_folder, 0)
 
     chunk_to_layers = {}
     for ofs in sqlite_info.offscreen_chunks_sqlite_info:
@@ -3023,6 +3037,9 @@ def extract_csp(filename):
         layer_names[layer.MainId] = layer.LayerName
 
     chunks = extract_csp_chunks_data(file_chunks_list, cmd_args.output_dir, chunk_to_layers, layer_names)
+
+    if cmd_args.output_preview_image:
+        save_preview_image(cmd_args.output_preview_image, sqlite_info)
 
     if cmd_args.output_dir:
         save_layers_as_png(chunks, cmd_args.output_dir, sqlite_info)
@@ -3058,6 +3075,7 @@ def parse_command_line():
 
     parser.add_argument('--log-level', help='Set the logging level (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL).', type=str, default='INFO')
     parser.add_argument('--sqlite-file', help='Path for the output SQLite file, imply --keep-sqlite', type=str)
+    parser.add_argument('--output-preview-image', help='Path for image preview export, example: "./preview.png". Note: preview is downscaled version of canvas.', type=str)
     parser.add_argument('--keep-sqlite', help='Keep the temporary SQLite file, path is derived from output psd or output directory if not specified with --sqlite-file', action='store_true')
     parser.add_argument('--text-layer-raster', help='Export text layers as raster: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='enable')
     parser.add_argument('--text-layer-vector', help='Export text layers as vector: enable, disable, invisible.', choices=['enable', 'disable', 'invisible'], default='invisible')
@@ -3076,11 +3094,15 @@ def parse_command_line():
     if cmd_args.sqlite_file:
         cmd_args.keep_sqlite = True
 
-    if not (cmd_args.keep_sqlite or cmd_args.output_dir or cmd_args.output_psd):
+    outputs = [(cmd_args.sqlite_file if cmd_args.keep_sqlite else None), cmd_args.output_dir, cmd_args.output_psd, cmd_args.output_preview_image]
+
+    if not any(outputs):
         cmd_args.output_psd = os.path.splitext(cmd_args.input_file)[0] + '.psd'
+        outputs.append(cmd_args.output_psd)
         if os.path.isfile(cmd_args.output_psd):
             logging.error("output file '%s' already exists, would not overwrite if not explicitly requested by -o option.", cmd_args.output_psd)
             sys.exit(1)
+    outputs = [f for f in outputs if f]
 
 
     if cmd_args.output_psd:
@@ -3097,6 +3119,8 @@ def parse_command_line():
             cmd_args.sqlite_file = os.path.splitext(cmd_args.output_psd)[0] + '.sqlite'
         elif cmd_args.output_dir:
             cmd_args.sqlite_file = os.path.join(cmd_args.output_dir, 'output.sqlite')
+        elif cmd_args.output_preview_image:
+            cmd_args.sqlite_file = os.path.splitext(cmd_args.output_preview_image)[0] + '.sqlite'
         else:
             parser.error('Output SQLite file path cannot be derived. Please specify --sqlite-file or an output option.')
 
@@ -3104,13 +3128,15 @@ def parse_command_line():
         if not os.path.isdir(cmd_args.output_dir):
             os.mkdir(cmd_args.output_dir)
 
+    return outputs
+
+
 
 def main():
-    parse_command_line()
+    outputs = parse_command_line()
     extract_csp(cmd_args.input_file)
 
-    outputs = [(cmd_args.sqlite_file if cmd_args.keep_sqlite else None), cmd_args.output_dir, cmd_args.output_psd]
-    logging.info("export done to %s", ', '.join(f"'{x}'" for x in outputs if x))
+    logging.info("export done to %s", ', '.join(f"'{x}'" for x in outputs))
 
 if __name__ == "__main__":
     main()
